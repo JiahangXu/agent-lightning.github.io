@@ -62,7 +62,7 @@ Ideally, we would locate the agent's response within the full conversation by ma
 
 This mismatch occurs because the mapping from `String` to `Token IDs` is not bijective; it is context-dependent. The cycle of `ID (Generation) -> String (Detokenization) -> ID (Retokenization)` introduces drift, preventing exact prefix matching.
 
-<!-- *(Figure 2: The Retokenization Cycle. The original generated IDs, when converted to text and re-tokenized with new context, result in a different set of IDs, causing match failures.)* -->
+![](./retokenization_cycle.jpg)
 
 #### 3.1.1 Retokenization Drift Caused by Chat Templates
 
