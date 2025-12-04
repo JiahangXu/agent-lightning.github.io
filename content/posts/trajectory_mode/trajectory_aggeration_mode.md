@@ -64,7 +64,31 @@ This mismatch occurs because the mapping from `String` to `Token IDs` is not bij
 
 ![](./retokenization_cycle.jpg)
 
-#### 3.1.1 Retokenization Drift Caused by Chat Templates
+#### 3.1.1 Contextual Tokenization Discrepancy and String Normalization Artifacts
+
+**Sub-Word Split Variability**
+
+Tokenization algorithms (like BPE) merge characters based on frequency and context. A text segment generated sequentially token-by-token can result in different IDs than the same text processed as a whole block.
+
+  * **The "HAVING" Example:** During generation, a model might output the word "HAVING" as two separate tokens: `H` (ID: 35) + `AVING` (ID: 482). However, when this text is detokenized into the string "HAVING" and then re-tokenized as part of a prompt, the tokenizer might prefer the split `HAV` (ID: 982) + `ING` (ID: 27).
+  * **Result:** Although the human-readable text is identical, the token ID sequences differ. The system cannot "find" the response `[35, 482]` inside the re-tokenized history `[..., 982, 27, ...]`, causing the masking logic to fail.
+
+**Whitespace and Escape Character Normalization Artifacts**
+
+Furthermore, minor artifacts often invisible in standard string views can cause drift.
+
+  * **Issue:** During re-tokenization as a new prompt, additional whitespace, escape characters (e.g., `\n` vs `\\n`), or formatting variances may be introduced or normalized.
+  * **Impact:** These subtle changes shift the token boundaries, rendering the original stored indices invalid.
+
+**Special Tokens Hallucination**
+
+Occasionally, models may hallucinate or "spell out" special tokens rather than generating the single atomic ID.
+
+  * **Issue:** Due to model hallucination, a model might generate the string `<reserved_token_xx>` character-by-character (resulting in multiple token IDs). However, during re-tokenization, the tokenizer recognizes this string as a reserved keyword and collapses it into a single special token ID.
+  * **Result:** This creates a discrepancy in token counts (e.g., 10 tokens generated vs. 1 token re-tokenized), causing significant misalignment in the mask indices.
+
+
+#### 3.1.2 Retokenization Drift Caused by Chat Templates
 
 The mechanism used by Chat Templates to demarcate individual turns introduces boundary artifacts, creating ambiguity in mask assignment.
 
@@ -81,21 +105,6 @@ When responses are concatenated with subsequent prompts, the tokenizer may merge
   * **The Dilemma:** This single token technically contains part of the *Response* (which should be masked as 1) and part of the *Template/Prompt* (which should be masked as 0). It is impossible to correctly assign a binary mask to this "hybrid" token.
 
 
-#### 3.1.2 Contextual Tokenization Discrepancy and String Normalization Artifacts
-
-**Sub-Word Split Variability**
-
-Tokenization algorithms (like BPE) merge characters based on frequency and context. A text segment generated sequentially token-by-token can result in different IDs than the same text processed as a whole block.
-
-  * **The "HAVING" Example:** During generation, a model might output the word "HAVING" as two separate tokens: `H` (ID: 35) + `AVING` (ID: 482). However, when this text is detokenized into the string "HAVING" and then re-tokenized as part of a prompt, the tokenizer might prefer the split `HAV` (ID: 982) + `ING` (ID: 27).
-  * **Result:** Although the human-readable text is identical, the token ID sequences differ. The system cannot "find" the response `[35, 482]` inside the re-tokenized history `[..., 982, 27, ...]`, causing the masking logic to fail.
-
-**Whitespace and Escape Character Normalization Artifacts**
-Furthermore, minor artifacts often invisible in standard string views can cause drift.
-
-  * **Issue:** During re-tokenization as a new prompt, additional whitespace, escape characters (e.g., `\n` vs `\\n`), or formatting variances may be introduced or normalized.
-  * **Impact:** These subtle changes shift the token boundaries, rendering the original stored indices invalid.
-
 #### 3.1.3 Agent Post-processing Modifications
 
 Many production agents employ post-processing logic to refine outputs before presenting them to the environment or user.
@@ -103,12 +112,6 @@ Many production agents employ post-processing logic to refine outputs before pre
   * **Issue:** An agent might generate a "Chain of Thought" followed by a final answer, but a regex post-processor might truncate the thought process to keep only the final answer for the next turn's history.
   * **Result:** The stored rollout data (full generation including thoughts) no longer matches the prompt prefix used in the subsequent turn (truncated history). The prefix matcher looks for content that effectively no longer exists in the history, breaking the trajectory assembly.
 
-#### 3.1.4 Special Tokens Hallucination
-
-Occasionally, models may hallucinate or "spell out" special tokens rather than generating the single atomic ID.
-
-  * **Issue:** Due to model hallucination, a model might generate the string `<reserved_token_xx>` character-by-character (resulting in multiple token IDs). However, during re-tokenization, the tokenizer recognizes this string as a reserved keyword and collapses it into a single special token ID.
-  * **Result:** This creates a discrepancy in token counts (e.g., 10 tokens generated vs. 1 token re-tokenized), causing significant misalignment in the mask indices.
 
 ### 3.2 Response Masking Failures
 
